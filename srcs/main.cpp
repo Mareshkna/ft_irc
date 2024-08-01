@@ -1,6 +1,7 @@
-#include "Server.hpp"
 #include <stdlib.h>
 #include <csignal>
+
+#include "Server.hpp"
 
 int	main( int argc, char **argv ) {
 
