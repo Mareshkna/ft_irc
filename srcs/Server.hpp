@@ -29,7 +29,8 @@ class Server {
 		int		get_socket_fd() const{ return this->_socket_fd; }
 		int		get_port() const{ return this->_port; }
 		std::string	get_password() const{ return this->_password; }
-		Client		*get_client( int fd );
+		Client		*get_client_by_fd( int fd );
+		Client		*get_client_by_username( std::string username );
 		Channel		*get_channel( std::string name );
 
 		// Setters //
@@ -48,16 +49,17 @@ class Server {
 		void	new_client_request();
 		void	data_receiver( int fd );
 		bool	check_existing_channel( std::string name );
+		bool	check_existing_client( std::string name );
 
 		// Command Functions //
 
-		void	pass_command( int fd, std::vector<std::string> command_parsed, Client *client );
-		void	user_command( int fd, std::vector<std::string> command_parsed, Client *client );
-		void	nick_command( int fd, std::vector<std::string> command_parsed, Client *client );
-		void	quit_command( int fd, std::vector<std::string> command_parsed, Client *client );
-		void	join_command( int fd, std::vector<std::string> command_parsed, Client *client );
-		void	part_command( int fd, std::vector<std::string> command_parsed, Client *client );
-		// void			privmsg_command(int fd, std::vector<std::string> command_parsed);
+		void	pass_command( std::vector<std::string> command_parsed, Client *client );
+		void	user_command( std::vector<std::string> command_parsed, Client *client );
+		void	nick_command( std::vector<std::string> command_parsed, Client *client );
+		void	quit_command( std::vector<std::string> command_parsed, Client *client );
+		void	join_command( std::vector<std::string> command_parsed, Client *client );
+		void	part_command( std::vector<std::string> command_parsed, Client *client );
+		void	privmsg_command( std::vector<std::string> command_parsed, Client *client );
 		// void			topic_command(int fd, std::vector<std::string> command_parsed);
 		// void			invite_command(int fd, std::vector<std::string> command_parsed);
 		// void			kick_command(int fd, std::vector<std::string> command_parsed);

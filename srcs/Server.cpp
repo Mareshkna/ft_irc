@@ -2,11 +2,21 @@
 
 // GETTERS //
 
-Client	*Server::get_client( int fd ) {
+Client	*Server::get_client_by_fd( int fd ) {
 
 	for (size_t i = 0; i < this->_client_register.size(); i++) {
 
 		if (this->_client_register[i].get_client_fd() == fd)
+			return &this->_client_register[i];
+	}
+	return NULL;
+}
+
+Client	*Server::get_client_by_username( std::string username ) {
+
+	for (size_t i = 0; i < this->_client_register.size(); i++) {
+
+		if (this->_client_register[i].get_client_username() == username)
 			return &this->_client_register[i];
 	}
 	return NULL;
@@ -120,7 +130,7 @@ void	Server::new_client_request() {
 
 void	Server::data_receiver( int fd ) {
 
-	Client *client = get_client(fd);
+	Client *client = get_client_by_fd(fd);
 	char	buff[1024];
 	memset(buff, 0, sizeof(buff));
 
@@ -128,13 +138,18 @@ void	Server::data_receiver( int fd ) {
 
 	if (bytes <= 0) {
 
-		std::cout << red << "Client [" << fd << "] disconnected." << white << std::endl;
-		client_clear(fd);
-		close(fd);
+		std::cout << red << "Client [" << client->get_client_fd() << "] disconnected." << white << std::endl;
+		client_clear(client->get_client_fd());
+		close(client->get_client_fd());
 	}
 	else {
 
-		buff[bytes - 1] = '\0';
+		if ((bytes - 1) <= 0)
+			return;
+		if (buff[bytes - 2] == '\r')
+			buff[bytes - 2] = '\0';
+		else
+			buff[bytes - 1] = '\0';
 
 		std::string command_raw;
 		command_raw.assign(buff);
@@ -154,7 +169,7 @@ void	Server::data_receiver( int fd ) {
 		if (!client->get_connected_status()) {
 
 			if (!strcmp(command_parsed[0].c_str(), "PASS"))
-				pass_command(fd, command_parsed, client);
+				pass_command(command_parsed, client);
 			else
 				send_message(fd, "Try... PASS <password>;\n");
 		}
@@ -163,22 +178,22 @@ void	Server::data_receiver( int fd ) {
 			if (!client->get_user_status() || !client->get_nick_status()) {
 
 				if (!strcmp(command_parsed[0].c_str(), "USER"))
-					user_command(fd, command_parsed, client);
+					user_command(command_parsed, client);
 				else if (!strcmp(command_parsed[0].c_str(), "NICK"))
-					nick_command(fd, command_parsed, client);
+					nick_command(command_parsed, client);
 				else
 					send_message(fd, "Create your account... NICK <nickname>; USER <username> <hostname> <servername> <realname>;\n");
 			}
 			else {
 
 				if (!strcmp(command_parsed[0].c_str(), "QUIT"))
-					quit_command(fd, command_parsed, client);
+					quit_command(command_parsed, client);
 				else if (!strcmp(command_parsed[0].c_str(), "JOIN"))
-					join_command(fd, command_parsed, client);
+					join_command(command_parsed, client);
 				else if (!strcmp(command_parsed[0].c_str(), "PART"))
-					part_command(fd, command_parsed, client);
-				// send_message(fd, "You are writing message on Server ! Well played !\n");
-				// std::cout << "Client [" << fd << "] wrote : " << buff << std::endl;
+					part_command(command_parsed, client);
+				else if (!strcmp(command_parsed[0].c_str(), "PRIVMSG"))
+					privmsg_command(command_parsed, client);
 			}
 		}
 	}
@@ -194,32 +209,43 @@ bool	Server::check_existing_channel( std::string name ) {
 	return false;
 }
 
+bool	Server::check_existing_client( std::string name ) {
+
+	for (size_t i = 0; i < _client_register.size(); i++) {
+
+		if (_client_register[i].get_client_username() == name)
+			return true;
+	}
+	return false;
+}
+
 // COMMANDS FUNCTIONS //
 
-void	Server::pass_command( int fd, std::vector<std::string> command_parsed, Client *client ) {
+void	Server::pass_command( std::vector<std::string> command_parsed, Client *client ) {
 
 	if (command_parsed.size() == 2) {
 
 		if (!strcmp(command_parsed[1].c_str(), get_password().c_str())) {
 
 			client->set_connected_status(true);
-			send_message(fd, "You are now connected. Welcome to IRC world !\n");
-			send_message(fd, "Create your account... NICK <nickname>; USER <username> <hostname> <servername> <realname>;\n");
-			std::cout << green << "Client [" << fd << "] is now connected." << white << std::endl;
+			send_message(client->get_client_fd(), "You are now connected. Welcome to IRC world !\n");
+			send_message(client->get_client_fd(), "Create your account... NICK <nickname>; USER <username> <hostname> <servername> <realname>;\n");
+			std::cout << green << "Client [" << client->get_client_fd() << "] is now connected." << white << std::endl;
 		}
 		else {
 
-			send_message(fd, "Bad password... Bye-bye !\n");
-			std::cout << red << "Client [" << fd << "] entered the wrong password." << white << std::endl;
-			client_clear(fd);
-			close(fd);
+			std::cout << "Client [" << client->get_client_fd() << "] wrote : (" << command_parsed[1] << ")" << std::endl;
+			send_message(client->get_client_fd(), "Bad password... Bye-bye !\n");
+			std::cout << red << "Client [" << client->get_client_fd() << "] entered the wrong password." << white << std::endl;
+			client_clear(client->get_client_fd());
+			close(client->get_client_fd());
 		}
 	}
 	else
-		send_message(fd, "Try... PASS <password>;\n");
+		send_message(client->get_client_fd(), "Try... PASS <password>;\n");
 }
 
-void	Server::user_command( int fd, std::vector<std::string> command_parsed, Client *client ) {
+void	Server::user_command( std::vector<std::string> command_parsed, Client *client ) {
 
 	if (command_parsed.size() == 5) {
 
@@ -229,58 +255,58 @@ void	Server::user_command( int fd, std::vector<std::string> command_parsed, Clie
 			client->set_client_hostname(command_parsed[2]);
 			client->set_client_servername(command_parsed[3]);
 			client->set_client_realname(command_parsed[4]);
-			std::cout << "Client [" << fd << "] : username, hostname, servername and realname setted." << std::endl;
+			std::cout << "Client [" << client->get_client_fd() << "] : username, hostname, servername and realname setted." << std::endl;
 			std::cout << "<username> : " << client->get_client_username() << std::endl;
 			std::cout << "<hostname> : " << client->get_client_hostname() << std::endl;
 			std::cout << "<servername> : " << client->get_client_servername() << std::endl;
 			std::cout << "<realname> : " << client->get_client_realname() << std::endl;
-			send_message(fd, "Username, hostname, servername and realname setted !\n");
+			send_message(client->get_client_fd(), "Username, hostname, servername and realname setted !\n");
 			client->set_user_status(true);
 		}
 		else
-			send_message(fd, "Username settings already done.\n");
+			send_message(client->get_client_fd(), "Username settings already done.\n");
 	}
 	else
-		send_message(fd, "Bad parameters... USER <username> <hostname> <servername> <realname>;\n");
+		send_message(client->get_client_fd(), "Bad parameters... USER <username> <hostname> <servername> <realname>;\n");
 }
 
-void	Server::nick_command( int fd, std::vector<std::string> command_parsed, Client *client ) {
+void	Server::nick_command( std::vector<std::string> command_parsed, Client *client ) {
 
 	if (command_parsed.size() == 2) {
 
 		if (!client->get_nick_status()) {
 
 			client->set_client_nickname(command_parsed[1]);
-			std::cout << "Client [" << fd << "] : nickname setted." << std::endl;
+			std::cout << "Client [" << client->get_client_fd() << "] : nickname setted." << std::endl;
 			std::cout << "<nickname> : " << client->get_client_nickname() << std::endl;
-			send_message(fd, "Nickname setted !\n");
+			send_message(client->get_client_fd(), "Nickname setted !\n");
 			client->set_nick_status(true);
 		}
 		else
-			send_message(fd, "Nickname settings already done.\n");
+			send_message(client->get_client_fd(), "Nickname settings already done.\n");
 	}
 	else
-		send_message(fd, "Bad parameters... NICK <nickname>;\n");
+		send_message(client->get_client_fd(), "Bad parameters... NICK <nickname>;\n");
 }
 
-void	Server::quit_command( int fd, std::vector<std::string> command_parsed, Client *client ) {
+void	Server::quit_command( std::vector<std::string> command_parsed, Client *client ) {
 
 	if (command_parsed.size() == 1) {
 
 		std::cout << red << "Client [" << client->get_client_username() << "] quit the IRC server." << white << std::endl;
-		send_message(fd, "You exited the server.\n");
-		client_clear(fd);
-		close(fd);
+		send_message(client->get_client_fd(), "You exited the server.\n");
+		client_clear(client->get_client_fd());
+		close(client->get_client_fd());
 	}
-	send_message(fd, "No parameters needed...\n");
+	send_message(client->get_client_fd(), "No parameters needed...\n");
 }
 
-void	Server::join_command( int fd, std::vector<std::string> command_parsed, Client *client ) {
+void	Server::join_command( std::vector<std::string> command_parsed, Client *client ) {
 
 	if (command_parsed.size() == 2) {
 
 		if (command_parsed[1][0] != '#' && command_parsed[1][0] != '&')
-			{send_message(fd, "Try with '#' or '&' : #public / &private.\n"); return;}
+			{send_message(client->get_client_fd(), "Try with '#' or '&' : #public / &private.\n"); return;}
 		if (!check_existing_channel(command_parsed[1])) {
 
 			Channel channel;
@@ -288,48 +314,83 @@ void	Server::join_command( int fd, std::vector<std::string> command_parsed, Clie
 			channel.add_new_client(*client);
 			_channel_register.push_back(channel);
 			std::cout << "Channel [" << channel.get_channel_name() << "] created by Client [" << client->get_client_username() << "]." << std::endl;
-			send_message(fd, "You created a channel !\n");
-			channel.print_client();
+			send_message(client->get_client_fd(), "You created a channel !\n");
 		}
 		else {
 
 			Channel *channel = get_channel(command_parsed[1]);
-			if (!channel->check_existing_client(fd)) {
+			if (!channel->check_existing_client(client->get_client_fd())) {
 
 				channel->add_new_client(*client);
 				std::cout << "Client [" << client->get_client_username() << "] entered the Channel [" << channel->get_channel_name() << "]." << std::endl;
-				send_message(fd, "You entered this channel...\n");
+				send_message(client->get_client_fd(), "You entered this channel...\n");
 			}
 			else
-				send_message(fd, "You are already in this channel...\n");
-			channel->print_client();
+				send_message(client->get_client_fd(), "You are already in this channel...\n");
 		}
 	}
 	else
-		send_message(fd, "Bad parameters... JOIN <channel>;\n");
+		send_message(client->get_client_fd(), "Bad parameters... JOIN <channel>;\n");
 }
 
-void	Server::part_command( int fd, std::vector<std::string> command_parsed, Client *client) {
+void	Server::part_command( std::vector<std::string> command_parsed, Client *client) {
 
 	if (command_parsed.size() == 2) {
 
 		if (!check_existing_channel(command_parsed[1]))
-			send_message(fd, "This channel doesn't exist...\n");
+			send_message(client->get_client_fd(), "This channel doesn't exist...\n");
 		else {
 
 			Channel *channel = get_channel(command_parsed[1]);
-			if (!channel->check_existing_client(fd))
-				send_message(fd, "You aren't in this channel...\n");
+			if (!channel->check_existing_client(client->get_client_fd()))
+				send_message(client->get_client_fd(), "You aren't in this channel...\n");
 			else {
 				
-				channel->client_clear(fd);
+				channel->client_clear(client->get_client_fd());
 				std::cout << "Client [" << client->get_client_username() << "] quitted the Channel [" << channel->get_channel_name() << "]." << std::endl;
-				send_message(fd, "You are now removed from this channel...\n");
+				send_message(client->get_client_fd(), "You are now removed from this channel...\n");
 			}
 		}
 	}
 	else
-		send_message(fd, "Bad parameters... PART <channel>;\n");
+		send_message(client->get_client_fd(), "Bad parameters... PART <channel>;\n");
+}
+
+void	Server::privmsg_command( std::vector<std::string> command_parsed,  Client *client ) {
+
+	if (command_parsed.size() >= 3) {
+
+		std::string	message;
+
+		message += ":" + client->get_client_username() + " PRIVMSG " + command_parsed[1] + " :" + command_parsed[2];
+		for (unsigned long int i = 3; i < command_parsed.size(); i++)
+			message += " " + command_parsed[i];
+		message += "\n";
+
+		if (check_existing_client(command_parsed[1])) {
+
+			Client *client_receiver = get_client_by_username(command_parsed[1]);
+
+			send_message(client_receiver->get_client_fd(), message);
+			std::cout << "Client [" << client->get_client_username() << "] send a message to Client [" << client_receiver->get_client_username() << "]." << std::endl;
+		}
+		else if (check_existing_channel(command_parsed[1])) {
+
+			Channel *channel = get_channel(command_parsed[1]);
+
+			if (channel->check_existing_client(client->get_client_fd())) {
+				
+				channel->send_message_to_client(message, client);
+				std::cout << "Client [" << client->get_client_username() << "] send a message to Channel [" << channel->get_channel_name() << "]." << std::endl;
+			}
+			else
+				send_message(client->get_client_fd(), "You are not in this channel...\n");
+		}
+		else
+			send_message(client->get_client_fd(), "Receiver doesn't exist...\n");
+	}
+	else
+		send_message(client->get_client_fd(), "Bad parameters... PRIVMSG <user/channel> <message>;\n");
 }
 
 // CLEAR FUNCTIONS //
